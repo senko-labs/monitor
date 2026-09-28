@@ -1,0 +1,9 @@
+node_modules/
+recordings/
+logs/
+tools/
+launch-hidden.vbs
+recordings-*/
+dist/
+launch-viewer-hidden.vbs
+certs/

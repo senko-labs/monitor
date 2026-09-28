@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screen Recordings</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-hover: #1e222b;
+    --border: #262b36;
+    --text: #e6e9ef;
+    --muted: #8b93a4;
+    --accent: #4c8dff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 15px/1.5 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header .host { color: var(--muted); font-size: 13px; }
+  header .count { margin-left: auto; color: var(--muted); font-size: 13px; }
+  .layout { display: flex; min-height: calc(100vh - 57px); }
+  .list {
+    width: 340px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    max-height: calc(100vh - 57px);
+  }
+  .item {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .item:hover { background: var(--panel-hover); }
+  .item.active { background: var(--panel); border-left: 3px solid var(--accent); padding-left: 13px; }
+  .item .row { display: flex; align-items: center; gap: 8px; }
+  .item .name { font-weight: 500; word-break: break-all; flex: 1; }
+  .item .meta { color: var(--muted); font-size: 12.5px; }
+  .icon-btn {
+    flex-shrink: 0;
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 6px; width: 30px; height: 30px; cursor: pointer; font-size: 15px;
+    line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .icon-btn:hover { color: #ff6b6b; border-color: #ff6b6b; }
+  .icon-btn.confirm { color: #fff; background: #d63b3b; border-color: #d63b3b; width: auto; padding: 0 10px; font-size: 12.5px; }
+  .player { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  video { width: 100%; max-height: 70vh; background: #000; border-radius: 8px; }
+  .player .title { font-size: 15px; word-break: break-all; }
+  .player .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; border-radius: 7px; font-size: 13.5px; font-weight: 500;
+    text-decoration: none; cursor: pointer; border: 1px solid transparent;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-secondary { background: transparent; color: var(--text); border-color: var(--border); }
+  .btn-secondary:hover { background: var(--panel-hover); }
+  .btn-danger { background: transparent; color: #ff6b6b; border-color: #3a2a2a; }
+  .btn-danger:hover { background: #2a1a1a; }
+  .btn-danger.confirm { background: #d63b3b; color: #fff; border-color: #d63b3b; }
+  .empty, .placeholder { color: var(--muted); padding: 40px 20px; text-align: center; }
+  .placeholder { margin: auto; }
+  @media (max-width: 720px) {
+    .layout { flex-direction: column; }
+    .list { width: 100%; max-height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Screen Recordings</h1>
+  <span class="host" id="host"></span>
+  <span class="count" id="count"></span>
+</header>
+<div class="layout">
+  <div class="list" id="list"><div class="empty">Loading…</div></div>
+  <div class="player">
+    <div class="placeholder" id="placeholder">Select a recording to play.</div>
+    <div id="stage" style="display:none; flex-direction:column; gap:14px; width:100%;">
+      <video id="video" controls preload="metadata"></video>
+      <div class="title" id="title"></div>
+      <div class="actions" id="actions"></div>
+    </div>
+  </div>
+</div>
+<script>
+  const fmtSize = (b) => {
+    if (b >= 1e9) return (b / 1e9).toFixed(2) + ' GB';
+    if (b >= 1e6) return (b / 1e6).toFixed(1) + ' MB';
+    if (b >= 1e3) return (b / 1e3).toFixed(0) + ' KB';
+    return b + ' B';
+  };
+  const fmtDate = (ms) => new Date(ms).toLocaleString();
+
+  const videoUrl = (name) => '/videos/' + encodeURIComponent(name);
+  let active = null;
+  let videos = [];
+  let canDelete = false;
+
+  function play(video) {
+    active = video.name;
+    document.getElementById('placeholder').style.display = 'none';
+    document.getElementById('stage').style.display = 'flex';
+    const url = videoUrl(video.name);
+    const el = document.getElementById('video');
+    el.src = url;
+    el.play().catch(() => {});
+    document.getElementById('title').textContent =
+      video.name + '  —  ' + fmtSize(video.size) + '  —  ' + fmtDate(video.mtime);
+
+    const actions = document.getElementById('actions');
+    actions.innerHTML = '';
+
+    const dl = document.createElement('a');
+    dl.className = 'btn btn-primary';
+    dl.href = url;
+    dl.setAttribute('download', video.name);
+    dl.innerHTML = '&#x2193; Download';
+    actions.appendChild(dl);
+
+    const open = document.createElement('a');
+    open.className = 'btn btn-secondary';
+    open.href = url;
+    open.target = '_blank';
+    open.rel = 'noopener';
+    open.textContent = 'Open in new tab';
+    actions.appendChild(open);
+
+    if (canDelete) {
+      const del = document.createElement('button');
+      del.className = 'btn btn-danger';
+      del.innerHTML = '&#x1F5D1; Delete';
+      makeConfirmable(del, 'Click again to delete permanently', () => remove(video.name));
+      actions.appendChild(del);
+    }
+    render();
+  }
+
+  /**
+   * Two-click confirm without a blocking dialog: first click arms the button,
+   * a second click within 4s performs the action, otherwise it resets.
+   */
+  function makeConfirmable(btn, confirmText, action) {
+    const original = btn.innerHTML;
+    let armed = false, timer = null;
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      if (armed) {
+        clearTimeout(timer);
+        action();
+        return;
+      }
+      armed = true;
+      btn.classList.add('confirm');
+      btn.innerHTML = confirmText;
+      timer = setTimeout(() => {
+        armed = false;
+        btn.classList.remove('confirm');
+        btn.innerHTML = original;
+      }, 4000);
+    };
+  }
+
+  async function remove(name) {
+    try {
+      const res = await fetch(videoUrl(name), { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert('Could not delete: ' + (body.error || res.status));
+        return;
+      }
+      if (active === name) {
+        active = null;
+        document.getElementById('video').src = '';
+        document.getElementById('stage').style.display = 'none';
+        document.getElementById('placeholder').style.display = 'block';
+      }
+      await refresh();
+    } catch (err) {
+      alert('Could not delete: ' + err.message);
+    }
+  }
+
+  function render() {
+    const list = document.getElementById('list');
+    if (!videos.length) {
+      list.innerHTML = '<div class="empty">No finished recordings yet.<br>' +
+        'A video appears here once it reaches its length limit, ' +
+        'or after you run <code>npm run finalise</code>.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    for (const v of videos) {
+      const div = document.createElement('div');
+      div.className = 'item' + (v.name === active ? ' active' : '');
+
+      const row = document.createElement('div');
+      row.className = 'row';
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = v.name;
+      row.appendChild(name);
+
+      if (canDelete) {
+        const trash = document.createElement('button');
+        trash.className = 'icon-btn';
+        trash.title = 'Delete permanently';
+        trash.innerHTML = '&#x1F5D1;';
+        makeConfirmable(trash, 'Delete?', () => remove(v.name));
+        row.appendChild(trash);
+      }
+
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = fmtDate(v.mtime) + ' · ' + fmtSize(v.size);
+
+      div.appendChild(row);
+      div.appendChild(meta);
+      div.onclick = () => play(v);
+      list.appendChild(div);
+    }
+  }
+
+  async function refresh() {
+    try {
+      const res = await fetch('/api/videos');
+      const data = await res.json();
+      videos = data.videos || [];
+      canDelete = !!data.canDelete;
+      document.getElementById('host').textContent = data.host ? 'on ' + data.host : '';
+      document.getElementById('count').textContent =
+        videos.length + (videos.length === 1 ? ' recording' : ' recordings');
+      render();
+    } catch {
+      document.getElementById('list').innerHTML =
+        '<div class="empty">Could not reach the server.</div>';
+    }
+  }
+
+  refresh();
+  setInterval(refresh, 15000); // pick up newly finished videos
+</script>
+</body>
+</html>

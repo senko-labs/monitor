@@ -1,0 +1,28 @@
+{
+  "name": "screen-activity-recorder",
+  "version": "1.0.0",
+  "description": "Background Windows service-style app that records the entire screen with ffmpeg only while the user is active (keyboard/mouse), into 3-hour H.264 MP4 segments at 30fps.",
+  "main": "src/index.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js",
+    "setup-ffmpeg": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-ffmpeg.ps1",
+    "install-autostart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-autostart.ps1",
+    "uninstall-autostart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall-autostart.ps1",
+    "status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/status.ps1",
+    "stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop.ps1",
+    "finalise": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/finalise.ps1",
+    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1",
+    "install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1",
+    "package-small": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1 -NoFfmpeg",
+    "viewer": "node src/server.js",
+    "install-viewer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-viewer.ps1",
+    "uninstall-viewer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall-viewer.ps1",
+    "setup-cert": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-cert.ps1",
+    "diagnose-viewer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/diagnose-viewer.ps1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {}
+}
