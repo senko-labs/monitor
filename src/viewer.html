@@ -37,7 +37,11 @@
   }
   header h1 { font-size: 17px; margin: 0; font-weight: 650; letter-spacing: .2px; }
   header .host { color: var(--muted); font-size: 12.5px; }
-  header .count { margin-left: auto; color: var(--muted); font-size: 12.5px; }
+  header .count { color: var(--muted); font-size: 12.5px; }
+  .toggle { margin-left: auto; display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .toggle button { background: transparent; color: var(--muted); border: none; padding: 6px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600; }
+  .toggle button.active { background: var(--panel-2); color: var(--text); }
+  .toggle button:not(.active):hover { color: var(--text); }
 
   main { padding: 20px 22px 60px; max-width: 1200px; margin: 0 auto; }
 
@@ -118,6 +122,35 @@
     border-radius: 50%; background: #ff7a59;
   }
 
+  /* ---------- list view ---------- */
+  .day-list { margin-bottom: 22px; }
+  .list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .lrow {
+    display: flex; align-items: center; gap: 14px; padding: 10px 14px;
+    border-bottom: 1px solid var(--border); cursor: pointer;
+  }
+  .lrow:last-child { border-bottom: none; }
+  .lrow:hover { background: var(--panel-2); }
+  .lrow.active { background: var(--panel); box-shadow: inset 3px 0 0 var(--accent); }
+  .lrow .when { width: 84px; flex-shrink: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .lrow .lname { flex: 1; min-width: 0; color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lrow .dur { width: 92px; flex-shrink: 0; color: var(--text); font-variant-numeric: tabular-nums; }
+  .lrow .sz { width: 78px; flex-shrink: 0; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+  .lrow .lacts { display: flex; gap: 6px; flex-shrink: 0; }
+  .lbtn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 6px; cursor: pointer; font-size: 14px;
+    border: 1px solid var(--border); background: transparent; color: var(--muted);
+    text-decoration: none; padding: 0;
+  }
+  .lbtn:hover { color: var(--text); background: var(--panel-2); }
+  .lbtn.del:hover { color: var(--danger); border-color: var(--danger); }
+  .lbtn.del.confirm { width: auto; padding: 0 8px; font-size: 11px; color: #fff; background: var(--danger); border-color: var(--danger); }
+  @media (max-width: 640px) {
+    .lrow .sz { display: none; }
+    .lrow .lname { display: none; }
+  }
+
   .empty { color: var(--muted); padding: 60px 20px; text-align: center; }
   .empty code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; }
 
@@ -132,6 +165,10 @@
 <header>
   <h1>Screen Recordings</h1>
   <span class="host" id="host"></span>
+  <span class="toggle" id="toggle">
+    <button data-mode="timeline">Timeline</button>
+    <button data-mode="list">List</button>
+  </span>
   <span class="count" id="count"></span>
 </header>
 
@@ -178,6 +215,17 @@
   const videoUrl = (name) => '/videos/' + encodeURIComponent(name);
 
   let videos = [], canDelete = false, active = null;
+  let viewMode = 'timeline';
+  try { viewMode = localStorage.getItem('viewMode') || 'timeline'; } catch { /* private mode */ }
+
+  function setMode(mode) {
+    viewMode = mode;
+    try { localStorage.setItem('viewMode', mode); } catch { /* ignore */ }
+    for (const b of document.querySelectorAll('#toggle button')) {
+      b.classList.toggle('active', b.dataset.mode === mode);
+    }
+    render();
+  }
 
   function selectVideo(v) {
     active = v.name;
@@ -277,14 +325,85 @@
     return block;
   }
 
+  // Group the (already newest-first) videos by local calendar day.
+  function groupByDay() {
+    const byDay = new Map();
+    for (const v of videos) {
+      const key = dayStartOf(v.start);
+      if (!byDay.has(key)) byDay.set(key, []);
+      byDay.get(key).push(v);
+    }
+    return [...byDay.keys()].sort((a, b) => b - a).map((day) => [day, byDay.get(day)]);
+  }
+
   function render() {
-    const tl = document.getElementById('timeline');
+    const el = document.getElementById('timeline');
     if (!videos.length) {
-      tl.innerHTML = '<div class="empty">No recordings yet.<br>A file appears here for each ' +
+      el.innerHTML = '<div class="empty">No recordings yet.<br>A file appears here for each ' +
         'period of keyboard/mouse activity.</div>';
       return;
     }
+    if (viewMode === 'list') renderList(el);
+    else renderTimeline(el);
+  }
 
+  function renderList(root) {
+    root.innerHTML = '';
+    for (const [day, dayItems] of groupByDay()) {
+      const items = dayItems.slice().sort((a, b) => b.start - a.start); // newest first within the day
+      const totalDur = items.reduce((s, v) => s + (v.duration || 0), 0);
+      const totalSize = items.reduce((s, v) => s + v.size, 0);
+
+      const wrap = document.createElement('div');
+      wrap.className = 'day-list';
+      const head = document.createElement('div');
+      head.className = 'day-head';
+      head.innerHTML = `<span class="date">${fmtDay(day)}</span>` +
+        `<span class="sub">${items.length} session${items.length>1?'s':''} · ` +
+        `${fmtDur(totalDur)} · ${fmtSize(totalSize)}</span>`;
+      wrap.appendChild(head);
+
+      const list = document.createElement('div');
+      list.className = 'list';
+      for (const v of items) list.appendChild(makeRow(v));
+      wrap.appendChild(list);
+      root.appendChild(wrap);
+    }
+  }
+
+  function makeRow(v) {
+    const row = document.createElement('div');
+    row.className = 'lrow' + (v.name === active ? ' active' : '');
+    row.onclick = () => selectVideo(v);
+
+    const when = document.createElement('span');
+    when.className = 'when'; when.textContent = fmtClock(v.start);
+    const name = document.createElement('span');
+    name.className = 'lname'; name.textContent = v.name;
+    const dur = document.createElement('span');
+    dur.className = 'dur'; dur.textContent = fmtDur(v.duration);
+    const sz = document.createElement('span');
+    sz.className = 'sz'; sz.textContent = fmtSize(v.size);
+
+    const acts = document.createElement('span');
+    acts.className = 'lacts';
+    const dl = document.createElement('a');
+    dl.className = 'lbtn'; dl.href = videoUrl(v.name); dl.title = 'Download';
+    dl.setAttribute('download', v.name); dl.innerHTML = '&#x2193;';
+    dl.onclick = (e) => e.stopPropagation();
+    acts.appendChild(dl);
+    if (canDelete) {
+      const del = document.createElement('button');
+      del.className = 'lbtn del'; del.title = 'Delete'; del.innerHTML = '&#x1F5D1;';
+      makeConfirmable(del, 'delete?', () => remove(v.name));
+      acts.appendChild(del);
+    }
+
+    row.append(when, name, dur, sz, acts);
+    return row;
+  }
+
+  function renderTimeline(tl) {
     // group by local day
     const byDay = new Map();
     for (const v of videos) {
@@ -355,6 +474,12 @@
       document.getElementById('timeline').innerHTML = '<div class="empty">Could not reach the server.</div>';
     }
   }
+
+  document.getElementById('toggle').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-mode]');
+    if (b) setMode(b.dataset.mode);
+  });
+  setMode(viewMode);
 
   refresh();
   setInterval(refresh, 15000);
