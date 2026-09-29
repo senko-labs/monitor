@@ -6,14 +6,56 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const os = require('os');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 
 const { load } = require('./config');
 const { Logger } = require('./logger');
+const { resolveFfprobe } = require('./ffmpeg-locator');
+
+const execFileAsync = promisify(execFile);
 
 const cfg = load();
 const logger = new Logger(cfg.logDir, cfg.logLevel);
+const ffprobe = resolveFfprobe(cfg);
 
 const PAGE = path.join(__dirname, 'viewer.html');
+
+// Duration is looked up with ffprobe and cached; the key includes size+mtime so
+// a still-growing file is re-probed and a replaced file is never stale.
+const durationCache = new Map();
+
+async function probeDuration(file, stat) {
+  if (!ffprobe) return null;
+  const key = `${file}:${stat.size}:${stat.mtimeMs}`;
+  if (durationCache.has(key)) return durationCache.get(key);
+  let seconds = null;
+  try {
+    const { stdout } = await execFileAsync(ffprobe, [
+      '-v', 'error',
+      '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      file,
+    ], { windowsHide: true });
+    const value = Number(String(stdout).trim());
+    if (Number.isFinite(value)) seconds = value;
+  } catch {
+    // Unreadable or still being written - leave duration null.
+  }
+  durationCache.set(key, seconds);
+  if (durationCache.size > 5000) durationCache.clear(); // keep it bounded
+  return seconds;
+}
+
+// Recording file names are screen-YYYYMMDD-HHMMSS.mp4; the stamp is the local
+// wall-clock time the session started, which is what the timeline is placed by.
+function startTimeFromName(name) {
+  const m = /-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.mp4$/.exec(name);
+  if (!m) return null;
+  const [, y, mo, d, h, mi, s] = m.map(Number);
+  const date = new Date(y, mo - 1, d, h, mi, s);
+  return Number.isNaN(date.getTime()) ? null : date.getTime();
+}
 
 /**
  * Loads TLS material for HTTPS. A user-supplied PEM cert/key pair (e.g. a real
@@ -49,7 +91,6 @@ function contentType(file) {
   return 'application/octet-stream';
 }
 
-/** Finished recordings only - the in-progress video lives under .parts. */
 async function listVideos() {
   let entries;
   try {
@@ -60,16 +101,19 @@ async function listVideos() {
   const videos = [];
   for (const name of entries) {
     if (!name.startsWith(`${cfg.filePrefix}-`) || !name.endsWith('.mp4')) continue;
+    const file = path.join(cfg.outputDir, name);
     try {
-      const stat = await fsp.stat(path.join(cfg.outputDir, name));
-      if (stat.isFile()) {
-        videos.push({ name, size: stat.size, mtime: stat.mtimeMs });
-      }
+      const stat = await fsp.stat(file);
+      if (!stat.isFile()) continue;
+      const duration = await probeDuration(file, stat);
+      // Prefer the timestamp in the name; fall back to the file's mtime.
+      const start = startTimeFromName(name) ?? Math.round(stat.mtimeMs - (duration || 0) * 1000);
+      videos.push({ name, size: stat.size, mtime: stat.mtimeMs, start, duration });
     } catch {
       // File vanished between readdir and stat (e.g. retention sweep) - skip.
     }
   }
-  videos.sort((a, b) => b.mtime - a.mtime);
+  videos.sort((a, b) => b.start - a.start);
   return videos;
 }
 

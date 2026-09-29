@@ -30,28 +30,6 @@ $cfg = Get-Content (Join-Path $root 'config.json') -Raw | ConvertFrom-Json
 $outDir = if ([System.IO.Path]::IsPathRooted($cfg.outputDir)) { $cfg.outputDir } else { Join-Path $root $cfg.outputDir }
 
 Write-Host ''
-Write-Host '=== Video being recorded ==='
-$statePath = Join-Path $outDir '.parts\current\state.json'
-if (Test-Path $statePath) {
-    $state = Get-Content $statePath -Raw | ConvertFrom-Json
-    $pct = if ($cfg.segmentSeconds -gt 0) { [math]::Round(100 * $state.durationSec / $cfg.segmentSeconds) } else { 0 }
-    $bars = [int]($pct / 4)
-    Write-Host ("Started : " + $state.startedAt)
-    Write-Host ("Recorded: " + (Format-Duration $state.durationSec) + " of " + (Format-Duration $cfg.segmentSeconds) + " (" + $pct + "%)")
-    Write-Host ("          [" + ('#' * $bars).PadRight(25, '.') + "]")
-    Write-Host ("Clips   : " + $state.partCount)
-    Write-Host 'Run "npm run finalise" to close this video now instead of waiting.'
-} else {
-    Write-Host 'Nothing accumulated yet.'
-}
-
-$pending = Get-ChildItem (Join-Path $outDir '.parts') -Directory -Filter 'pending-*' -ErrorAction SilentlyContinue
-if ($pending) {
-    Write-Host ''
-    Write-Host ("Assembling: " + ($pending.Name -join ', '))
-}
-
-Write-Host ''
 Write-Host '=== Scheduled task ==='
 $task = Get-ScheduledTask -TaskName 'ScreenActivityRecorder' -ErrorAction SilentlyContinue
 if ($task) {

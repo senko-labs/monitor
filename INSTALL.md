@@ -6,7 +6,7 @@
 - Node.js 18+ — the installer fetches the LTS build with winget if it is missing
 - ffmpeg + ffprobe — **bundled inside the package**, nothing to install
 - An account that logs in interactively (screen capture needs a real desktop)
-- Disk space: one 3-hour video is about 2–4.5 GB
+- Disk space: sessions vary; budget for how long the PC is used
 
 No administrator rights are required. The task is registered for the user who
 runs the installer, under that user's account only.
@@ -69,12 +69,9 @@ Expect `Running (pid …)`, the task listed with `LastTaskResult 0`, and — aft
 moving the mouse for a few seconds — `Capturing right now: yes`. To see a real
 file immediately without waiting three hours:
 
-```powershell
-npm run finalise    # closes the current video now and assembles it
-```
-
-Then reboot once and run `npm run status` again to confirm it comes back by
-itself.
+Move the mouse for a few seconds, wait ~10s to go idle, and a file appears in
+`recordings\`. Then reboot once and run `npm run status` again to confirm it
+comes back by itself.
 
 ## Viewing recordings from another PC in a browser
 
@@ -86,7 +83,7 @@ itself.
    private network, and prints the address, e.g. `https://192.168.1.42:8443`.
 3. On the other PC, open that address in any browser and click through the
    self-signed-certificate warning. You get a list of the finished videos;
-   click one to play, seek, or download it.
+   click a block to play, seek, download, or delete it.
 
 To remove the certificate warning on the watching PC, copy `certsiewer.crt`
 from the recording PC and run there:

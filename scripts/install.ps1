@@ -79,7 +79,7 @@ $cfg = Get-Content (Join-Path $root 'config.json') -Raw | ConvertFrom-Json
 $outDir = if ([System.IO.Path]::IsPathRooted($cfg.outputDir)) { $cfg.outputDir } else { Join-Path $root $cfg.outputDir }
 $drive = (Split-Path -Qualifier $outDir).TrimEnd(':')
 $free = (Get-PSDrive $drive).Free / 1GB
-Write-Host ("Drive {0}: has {1:N1} GB free. One 3-hour video is about 2-4.5 GB." -f $drive, $free)
+Write-Host ("Drive {0}: has {1:N1} GB free. Sessions vary in size with how long the PC is used." -f $drive, $free)
 if ($free -lt 10) { Write-Warning 'Less than 10 GB free - recording will suspend quickly.' }
 
 Step 'Registering the hidden logon task (recorder)'

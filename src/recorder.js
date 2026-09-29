@@ -1,28 +1,24 @@
 'use strict';
 
-const { EventEmitter } = require('events');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
 /**
- * Captures one burst of activity to a single MPEG-TS clip.
- *
- * The clip is capped at the footage still needed to complete the current
- * 3-hour video, so a long uninterrupted stretch ends exactly on the boundary
- * and the next clip belongs to the next video. Emits 'ended' with the clip
- * path once ffmpeg has exited.
+ * Captures the whole screen for as long as the user stays active, writing one
+ * MP4 per activity session. An idle gap ends the file; the next burst of input
+ * starts a new one. `segmentSeconds` is only a safety cap so a single
+ * uninterrupted session cannot grow without bound - normal sessions end well
+ * before it because the user goes idle.
  */
-class Recorder extends EventEmitter {
+class Recorder {
   constructor({ cfg, ffmpeg, logger }) {
-    super();
     this.cfg = cfg;
     this.ffmpeg = ffmpeg;
     this.logger = logger;
     this.child = null;
     this.stopping = null;
     this.startedAt = null;
-    this.file = null;
     this.consecutiveFailures = 0;
   }
 
@@ -30,13 +26,18 @@ class Recorder extends EventEmitter {
     return this.child !== null;
   }
 
-  buildArgs(file, limitSeconds) {
+  buildArgs() {
     const cfg = this.cfg;
+    const pattern = path.join(cfg.outputDir, `${cfg.filePrefix}-%Y%m%d-%H%M%S.mp4`);
+    // Fragmented MP4 is crash-safe: a power cut costs only the frames in flight,
+    // not the whole file (a plain MP4 needs its trailer written on close).
+    const movflags = cfg.fragmentedMp4
+      ? 'movflags=+frag_keyframe+empty_moov+default_base_moof'
+      : 'movflags=+faststart';
+
     return [
       '-hide_banner',
       '-loglevel', 'warning',
-      // Never prompt: an interactive overwrite question would hang forever
-      // in a windowless background process.
       '-y',
       // --- input: whole virtual desktop (all monitors) ---
       '-f', 'gdigrab',
@@ -53,19 +54,22 @@ class Recorder extends EventEmitter {
       '-pix_fmt', 'yuv420p',
       '-r', String(cfg.fps),            // constant 30 fps output
       '-g', String(cfg.fps * 2),        // keyframe every 2s
-      // Stop on the 3-hour boundary rather than overshooting it.
-      '-t', limitSeconds.toFixed(3),
-      // --- output: a crash-proof intermediate clip ---
-      '-f', 'mpegts',
-      file,
+      // --- output: one MP4 per session, capped in length for safety ---
+      '-f', 'segment',
+      '-segment_time', String(cfg.segmentSeconds),
+      '-segment_format', 'mp4',
+      '-segment_format_options', movflags,
+      '-reset_timestamps', '1',
+      '-strftime', '1',
+      pattern,
     ];
   }
 
-  start(file, limitSeconds) {
+  start() {
     if (this.child || this.stopping) return;
 
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const args = this.buildArgs(file, limitSeconds);
+    fs.mkdirSync(this.cfg.outputDir, { recursive: true });
+    const args = this.buildArgs();
     this.logger.debug(`ffmpeg ${args.join(' ')}`);
 
     this.child = spawn(this.ffmpeg, args, {
@@ -73,7 +77,6 @@ class Recorder extends EventEmitter {
       stdio: ['pipe', 'ignore', 'pipe'],
     });
     this.startedAt = Date.now();
-    this.file = file;
 
     this.child.stderr.setEncoding('utf8');
     this.child.stderr.on('data', (chunk) => {
@@ -96,58 +99,31 @@ class Recorder extends EventEmitter {
 
     this.child.on('exit', (code, signal) => {
       const seconds = Math.round((Date.now() - this.startedAt) / 1000);
-      const file = this.file;
       this.child = null;
-      this.file = null;
 
       if (this.stopping) {
         const drainMs = Date.now() - this.stopping.requestedAt;
-        this.logger.info(`clip closed after ${seconds}s (finalised in ${drainMs}ms)`);
-        if (drainMs > 5000) {
-          this.logger.warn(
-            `ffmpeg needed ${drainMs}ms to drain - the encoder is running behind ` +
-            'real time; consider a higher crf, a faster preset, or a GPU encoder'
-          );
-        }
-        const done = this.stopping.resolve;
+        this.logger.info(`recording stopped after ${seconds}s (finalised in ${drainMs}ms)`);
+        this.stopping.resolve();
         this.stopping = null;
         this.consecutiveFailures = 0;
-        this.emit('ended', { file, reachedLimit: false });
-        done();
-        return;
-      }
-
-      if (code === 0) {
-        // -t elapsed: this clip completed a video while the user kept working.
-        this.logger.info(`clip closed after ${seconds}s (reached the video length limit)`);
-        this.consecutiveFailures = 0;
-        this.emit('ended', { file, reachedLimit: true });
         return;
       }
 
       // Unexpected exit: usually the session locked, the desktop switched, or
-      // the display configuration changed. Whatever was captured is still a
-      // valid TS clip, so it is kept.
+      // the display configuration changed. The main loop restarts us.
       this.consecutiveFailures += 1;
       this.logger.warn(
         `ffmpeg exited unexpectedly after ${seconds}s (code ${code}, signal ${signal})`
       );
-      this.emit('ended', { file, reachedLimit: false });
     });
 
-    this.logger.info(
-      `recording started (user active) -> ${path.basename(file)}, ` +
-      `up to ${Math.round(limitSeconds)}s`
-    );
+    this.logger.info('recording started (user active)');
   }
 
   /**
-   * Sends 'q' so ffmpeg drains its encode queue and closes the clip.
-   *
-   * Draining is normally instant, but if the machine fell behind real time
-   * (a CPU spike right after boot, for instance) ffmpeg can hold several
-   * seconds of queued frames, and killing it early throws them away. So the
-   * grace period is generous - nothing is being recorded while we wait.
+   * Sends 'q' so ffmpeg drains its encode queue and closes the current MP4,
+   * force-killing only if it overruns the grace period.
    */
   stop() {
     if (!this.child) return Promise.resolve();
@@ -167,15 +143,11 @@ class Recorder extends EventEmitter {
       }
     };
     quit();
-
-    // One reminder halfway through, in case the first keypress was missed.
     const nudge = setTimeout(quit, Math.round(graceMs / 2));
 
     const kill = setTimeout(() => {
       if (!this.stopping) return;
-      this.logger.warn(
-        `ffmpeg did not finish writing within ${graceMs}ms - forcing termination`
-      );
+      this.logger.warn(`ffmpeg did not finish writing within ${graceMs}ms - forcing termination`);
       try { child.kill(); } catch { /* already gone */ }
     }, graceMs);
 

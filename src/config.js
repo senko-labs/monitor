@@ -18,6 +18,7 @@ const DEFAULTS = {
   encoder: 'libx264',
   preset: 'veryfast',
   crf: 28,
+  fragmentedMp4: true,
   filePrefix: 'screen',
   minFreeDiskMB: 2048,
   retentionDays: 0,

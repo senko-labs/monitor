@@ -11,7 +11,6 @@
     "uninstall-autostart": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall-autostart.ps1",
     "status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/status.ps1",
     "stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop.ps1",
-    "finalise": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/finalise.ps1",
     "package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1",
     "install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1",
     "package-small": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1 -NoFfmpeg",
