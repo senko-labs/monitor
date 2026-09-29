@@ -38,8 +38,8 @@ logger.info(`screen-activity-recorder starting (pid ${process.pid})`);
 logger.info(`ffmpeg:  ${ffmpeg}`);
 logger.info(`output:  ${cfg.outputDir}`);
 logger.info(
-  `policy:  ${cfg.fps}fps H.264, one file per activity session ` +
-  `(max ${cfg.segmentSeconds}s), stop after ${cfg.idleTimeoutMs}ms without input`
+  `policy:  ${cfg.fps}fps H.264, split every ${cfg.segmentSeconds}s, ` +
+  `stop after ${Math.round(cfg.idleTimeoutMs / 1000)}s without input`
 );
 
 const recorder = new Recorder({ cfg, ffmpeg, logger });

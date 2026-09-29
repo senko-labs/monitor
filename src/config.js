@@ -8,8 +8,8 @@ const ROOT = path.resolve(__dirname, '..');
 const DEFAULTS = {
   outputDir: 'recordings',
   fps: 30,
-  segmentSeconds: 10800,
-  idleTimeoutMs: 5000,
+  segmentSeconds: 600,
+  idleTimeoutMs: 900000,
   minRecordingMs: 15000,
   stopGraceMs: 30000,
   pollIntervalMs: 500,

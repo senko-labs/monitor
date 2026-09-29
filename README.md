@@ -9,7 +9,7 @@ A built-in browser viewer shows the recordings on a per-day timeline.
 
 | Requirement | How it is met |
 |---|---|
-| Capture only when keyboard/mouse activity occurs | A PowerShell helper polls the Win32 `GetLastInputInfo` API twice a second. Input → ffmpeg starts; `idleTimeoutMs` (default 5s) with no input → ffmpeg stops. |
+| Capture only when keyboard/mouse activity occurs | A PowerShell helper polls the Win32 `GetLastInputInfo` API twice a second. Input → ffmpeg starts; `idleTimeoutMs` (default 15 min) with no input → ffmpeg stops. Short idle gaps keep recording. |
 | MP4, H.264 | `libx264` into the ffmpeg `segment` muxer, `-segment_format mp4`, fragmented for crash safety. |
 | 30 fps | `-framerate 30` on the gdigrab input and `-r 30` on the output (constant frame rate). |
 | Runs as a background process, auto-starts with the PC | A hidden logon Scheduled Task (`ScreenActivityRecorder`) launched through `launch-hidden.vbs`, so no console window ever appears. |
@@ -17,22 +17,23 @@ A built-in browser viewer shows the recordings on a per-day timeline.
 
 ## How files are split
 
-Idle time is not recorded. Each period of keyboard/mouse activity is written to
-its own file, `recordings\screen-YYYYMMDD-HHMMSS.mp4` (the timestamp is when that
-session started). When you stop touching the keyboard and mouse for
-`idleTimeoutMs`, ffmpeg is stopped and the file is closed; the next input starts
-a new file.
+Recording runs while you are active and rolls into a new file every
+`segmentSeconds` (default **10 minutes**), each named
+`recordings\screen-YYYYMMDD-HHMMSS.mp4` after the moment that segment started.
+Short idle gaps do **not** end a file - recording only stops once there has been
+no keyboard/mouse input for `idleTimeoutMs` (default **15 minutes**). The next
+input starts a fresh file.
 
 ```
-activity   ████████      ██████      ███████████
-idle               ░░░░░       ░░░░░
-files      screen-...-090000    screen-...-091205    screen-...-093040
+input  ▎ ▎▎  ▎ ▎▎▎        ▎▎ ▎          (gaps under 15 min don't stop recording)
+files  |—10min—|—10min—|—6min—|         ……… 15 min with no input → stop
+       screen-...-090000  ...-091000  ...-092000
 ```
 
-`segmentSeconds` (default 3h) is only a safety cap so a single *uninterrupted*
-session cannot grow without bound; normal sessions end well before it because the
-user goes idle. Files use fragmented MP4, so a crash or power cut costs at most
-the few seconds of frames still in flight, not the whole file.
+Files use fragmented MP4, so a crash or power cut costs at most the few seconds
+of frames still in flight, not the whole file. Note: if Windows locks the screen
+during a long idle stretch, capture cannot continue (the lock screen is not
+recordable); the recorder resumes automatically when you return.
 
 ## Install
 
@@ -118,8 +119,8 @@ To run the viewer over plain HTTP instead, set `"viewerHttps": false`.
 |---|---|---|
 | `outputDir` | `recordings` | Where MP4s go. Relative to the app folder, or an absolute path. |
 | `fps` | `30` | Capture and output frame rate. |
-| `segmentSeconds` | `10800` | Safety cap on the length of one uninterrupted session (10800 = 3h). A session normally ends earlier, when you go idle. |
-| `idleTimeoutMs` | `5000` | Stop capturing after this long without keyboard/mouse input. |
+| `segmentSeconds` | `600` | Split length: a new file is started every this many seconds while recording (600 = 10 min). |
+| `idleTimeoutMs` | `900000` | Stop recording after this long with no keyboard/mouse input (900000 = 15 min). Shorter gaps do not split the file. |
 | `minRecordingMs` | `15000` | Minimum clip length before an idle gap may end it, so short input bursts do not create a spray of tiny clips. |
 | `stopGraceMs` | `30000` | How long to let ffmpeg drain and close a clip before force-killing it. |
 | `pollIntervalMs` | `500` | How often idle time is sampled. |

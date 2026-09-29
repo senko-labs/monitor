@@ -5,11 +5,10 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 /**
- * Captures the whole screen for as long as the user stays active, writing one
- * MP4 per activity session. An idle gap ends the file; the next burst of input
- * starts a new one. `segmentSeconds` is only a safety cap so a single
- * uninterrupted session cannot grow without bound - normal sessions end well
- * before it because the user goes idle.
+ * Captures the whole screen while the user is active, rolling the output into a
+ * new MP4 every `segmentSeconds` (the split length). Recording keeps going
+ * across short idle gaps and only stops once there has been no input for
+ * `idleTimeoutMs`; the next burst of input starts a fresh file.
  */
 class Recorder {
   constructor({ cfg, ffmpeg, logger }) {
@@ -54,7 +53,7 @@ class Recorder {
       '-pix_fmt', 'yuv420p',
       '-r', String(cfg.fps),            // constant 30 fps output
       '-g', String(cfg.fps * 2),        // keyframe every 2s
-      // --- output: one MP4 per session, capped in length for safety ---
+      // --- output: rolling segments of segmentSeconds each ---
       '-f', 'segment',
       '-segment_time', String(cfg.segmentSeconds),
       '-segment_format', 'mp4',
